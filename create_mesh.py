@@ -10,7 +10,6 @@
 """
 import argparse
 import pathlib
-import numpy
 import gmsh
 
 # parsing command-line arguments
@@ -41,7 +40,7 @@ length = 0.14
 
 # meshing parameters
 nr = args.nr
-dr = 2.0 * numpy.pi * radius / nr
+dr = 2.0 * 3.141592653589793 * radius / nr
 nz = int(length/dr+0.5)
 
 # print info

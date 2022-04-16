@@ -1,3 +1,5 @@
 **/*.sif
 **/*.msh
+**/*.tgz
+**/*.tar.gz
 cases
