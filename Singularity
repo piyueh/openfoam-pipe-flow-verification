@@ -1,3 +1,4 @@
+# maintainer: Pi-Yueh Chuang <pychuang@gwu.edu>
 # vim:ft=singularity
 
 Bootstrap: docker
@@ -33,6 +34,10 @@ From: openfoam/openfoam9-paraview56:9
 
     # make python3 the default python
     rm /usr/bin/python && ln -s /usr/bin/python3 /usr/bin/python
+
+    # let sh be a symlink of bash (default sh is the symlink of dash)
+    rm /bin/sh && ln -s /bin/bash /bin/sh
+    
 
 %environment
     export PYTHONPATH=/opt/gmsh/lib:$PYTHONPATH
