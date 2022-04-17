@@ -1,0 +1,64 @@
+#! /bin/sh
+#
+# slurm_job.sh
+# Copyright (C) 2022 Pi-Yueh Chuang <pychuang@pm.me>
+#
+# Distributed under terms of the BSD 3-Clause license.
+#
+
+#SBATCH --job-name="<jobname>"
+#SBATCH --partition=<partition>
+#SBATCH --nodes=<nodes>
+#SBATCH --ntasks=<ntasks>
+#SBATCH --time=<time>
+#SBATCH --output=slurm-job-%j.out
+#SBATCH --error=slurm-job-%j.err
+
+# get the path to this script (method depending on whether using Slurm)
+if [ -n "${SLURM_JOB_ID}" ] ; then
+    SCRIPTPATH=$(scontrol show job ${SLURM_JOB_ID} | grep -Po "(?<=Command=).*$")
+
+    # assuming the slurm cluster uses lmod
+    module load openmpi/gcc/64/4.1.0
+    module load singularity  # defult should be singularity 3.x.x
+else
+    SCRIPTPATH=$(realpath $0)
+
+    # when not using Slurm, users must provide the number of processes explicitly
+    if [ -z "${1+x}" ]; then
+        echo "Must provide number of MPI ranks to use."
+        exit 1
+    fi
+    echo "Will decompose the mesh and run icoFoam with $1 MPI processes."
+
+    SLURM_NTASKS=$1
+fi
+
+# get the path to the case based on where this script is in
+export CASE=$(dirname ${SCRIPTPATH})
+
+# path to the singularity image
+export IMAGE=${CASE}/../../openfoam9.sif
+
+# print info to stdout
+echo "Job script: ${SCRIPTPATH}"
+echo "Case folder: ${CASE}"
+echo "Singularity image: ${IMAGE}"
+
+# write to decomposition config using the first argument as the number of MPI process
+sed -i \
+    "s/\(numberOfSubdomains[[:space:]]\+\)[[:digit:]]*\(;\)$/\1${SLURM_NTASKS}\2/g" \
+    ${CASE}/system/decomposeParDict
+
+# create block mesh
+singularity exec ${IMAGE} gmshToFoam -case ${CASE} mesh.msh 2>&1 > ${CASE}/gmshToFoam.log
+
+# decompose mesh regardless previously decomposition
+singularity exec ${IMAGE} decomposePar -case ${CASE} -force 2>&1 > ${CASE}/decomposePar.log
+
+# run the solver
+mpiexec -n ${SLURM_NTASKS} --display-allocation \
+    singularity exec ${IMAGE} pimpleFoam -parallel -case ${CASE} 2>&1 > ${CASE}/pimpleFoam.log
+
+# reconstructure
+singularity exec ${IMAGE} reconstructPar -case ${CASE} 2>&1 > ${CASE}/reconstructPar.log
