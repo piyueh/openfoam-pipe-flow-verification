@@ -16,12 +16,12 @@ import re
 import gmsh
 
 
-def create_mesh(ncells, filename):
+def create_mesh(nthetas, filename):
     """Creates a mesh w/ a given number of cells on circular edge and saves to a given file path.
 
     Arguments
     ---------
-    ncells : int
+    nthetas : int
         The number of cells on a circular edge of the pipe.
     filename : os.PathLike
         The path to the output mesh file.
@@ -29,7 +29,7 @@ def create_mesh(ncells, filename):
     Returns
     -------
     radius, length, dr : float
-    ncells, nz, ntotal3d : int
+    nthetas, nz, ntotal3d : int
     """
 
     # initialize gmsh and configure behaviors
@@ -45,7 +45,7 @@ def create_mesh(ncells, filename):
     # pipe dimensions and meshing parameters
     radius = 0.00227
     length = 0.14
-    dr = 2.0 * 3.141592653589793 * radius / ncells
+    dr = 2.0 * 3.141592653589793 * radius / nthetas
     nz = int(length/dr+0.5)
 
     # pipe geometry
@@ -87,15 +87,15 @@ def create_mesh(ncells, filename):
     # shut down gmsh engine
     gmsh.finalize()
 
-    return radius, length, dr, ncells, nz, ntotal3d
+    return radius, length, dr, nthetas, nz, ntotal3d
 
 
-def create_case(ncells, args):
+def create_case(nthetas, args):
     """Create a case folder for a given number of cells on the circular edge.
 
     Arguments
     ---------
-    ncells : int
+    nthetas : int
         The number of cells on a circular edge of the pipe.
     args : argparse.Namespace
         The cmd arguments specifying the Slurm resource configuration.
@@ -106,7 +106,7 @@ def create_case(ncells, args):
     """
     # root path of this repo and the path to the case
     root = pathlib.Path(__file__).resolve().parent
-    casedir = root.joinpath("cases", f"airflow-pipe-{ncells}")
+    casedir = root.joinpath("cases", f"airflow-pipe-{nthetas}")
 
     # copy the base case files (will overwrite exist files if existing)
     shutil.copytree(root.joinpath("misc", "case.template"), casedir, dirs_exist_ok=True)
@@ -115,7 +115,7 @@ def create_case(ncells, args):
     casedir.joinpath(f"{casedir.name}.foam").touch()
 
     # create the mesh file in the case folder
-    meshinfo = create_mesh(ncells, casedir.joinpath("mesh.msh"))
+    meshinfo = create_mesh(nthetas, casedir.joinpath("mesh.msh"))
 
     # add the slurm script
     slurm = root.joinpath("misc", "job.sh.template").read_text("utf-8")
@@ -132,9 +132,14 @@ def create_case(ncells, args):
 
 if __name__ == "__main__":
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(
         allow_abbrev=False, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--ntheta", action="store", type=int, metavar="NTHETA", default=None,
+        help="Only create a folder for this case rather."
     )
     parser.add_argument(
         "--partition", "-p", action="store", type=str, metavar="PARTITION", default="debug-cpu",
@@ -152,9 +157,23 @@ if __name__ == "__main__":
         "--time", "-t", action="store", type=str, metavar="TIME", default="0-04:00:00",
         help="The time limit of this job. Format: {days}-{hours}:{minutes}:{seconds}."
     )
-    args = parser.parse_args()
+    cmdargs = parser.parse_args()
 
-    # generating case folders
-    nccs = [16, 32, 64, 128, 256]  # hard code the cases we are generating
+    # if creating a custom case
+    if cmdargs.ntheta is not None:
+        create_case(cmdargs.ntheta, cmdargs)
+        sys.exit(0)
+
+    # default action: create cases for reproducibility
+    cases = [
+        (16, argparse.Namespace(partition="short", nodes=1, ntasks=40, time="1-00:00:00")),
+        (32, argparse.Namespace(partition="short", nodes=1, ntasks=40, time="1-00:00:00")),
+        (64, argparse.Namespace(partition="short", nodes=1, ntasks=40, time="1-00:00:00")),
+        (128, argparse.Namespace(partition="short", nodes=2, ntasks=80, time="1-00:00:00")),
+        (256, argparse.Namespace(partition="short", nodes=8, ntasks=320, time="1-00:00:00")),
+    ]
+
     with multiprocessing.Pool(multiprocessing.cpu_count()//2) as pool:
-        pool.map(functools.partial(create_case, args=args), nccs, 1)
+        pool.starmap(create_case, cases, 1)
+
+    sys.exit(0)
